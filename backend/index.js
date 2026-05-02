@@ -18,6 +18,8 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fatiga_petshop_secret_2025';
 
+const PRODUCTOS_SEED = require('./productos_seed');
+
 async function initDB() {
   // Solo crea las tablas si no existen. NUNCA borra ni modifica datos existentes.
   try {
