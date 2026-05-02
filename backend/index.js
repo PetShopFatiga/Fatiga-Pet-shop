@@ -278,17 +278,61 @@ function getStockPriority(p) {
     const bolsa = getBagWeight(p.nombre);
     if (!bolsa || bolsa <= 0) return 'ok';
     if (stock <= 0) return 'critico';
-    if (stock < bolsa) return 'critico';
-    if (stock < bolsa * 2) return 'alto';
-    if (stock < bolsa * 3) return 'medio';
+    if (stock < bolsa) return 'critico';  // se abrió la última bolsa
     return 'ok';
   } else {
-    if (stock <= 0) return 'critico';
-    if (stock <= 1) return 'alto';
-    if (stock <= 2) return 'medio';
+    if (stock <= 1) return 'critico';  // queda 1 o menos = última unidad
     return 'ok';
   }
 }
+
+app.get('/api/financiero', auth, async (req, res) => {
+  const { fecha } = req.query;
+  const dia = fecha || new Date().toISOString().split('T')[0];
+  try {
+    const [ventas, compras, gastos] = await Promise.all([
+      pool.query(`
+        SELECT v.id, v.total, v.medio_pago, v.descuento, v.fecha,
+          u.nombre as empleado,
+          COALESCE(c.nombre || ' ' || COALESCE(c.apellido,''), 'Mostrador') as cliente
+        FROM ventas v
+        LEFT JOIN usuarios u ON v.usuario_id = u.id
+        LEFT JOIN clientes c ON v.cliente_id = c.id
+        WHERE v.fecha::date = $1
+        ORDER BY v.fecha
+      `, [dia]),
+      pool.query(`
+        SELECT i.id, i.total, i.medio_pago, i.estado, i.fecha, i.observaciones,
+          p.nombre as proveedor, u.nombre as empleado
+        FROM ingresos_mercaderia i
+        LEFT JOIN proveedores p ON i.proveedor_id = p.id
+        LEFT JOIN usuarios u ON i.usuario_id = u.id
+        WHERE i.fecha::date = $1
+        ORDER BY i.fecha
+      `, [dia]),
+      pool.query(`
+        SELECT g.id, g.monto, g.descripcion, g.categoria, g.medio_pago, g.fecha,
+          u.nombre as empleado
+        FROM gastos g
+        LEFT JOIN usuarios u ON g.usuario_id = u.id
+        WHERE g.fecha::date = $1
+        ORDER BY g.fecha
+      `, [dia])
+    ]);
+    const totalIngresos = ventas.rows.reduce((s,v) => s + parseFloat(v.total), 0);
+    const totalGastos = compras.rows.reduce((s,c) => s + parseFloat(c.total || 0), 0)
+                      + gastos.rows.reduce((s,g) => s + parseFloat(g.monto), 0);
+    res.json({
+      fecha: dia,
+      total_ingresos: totalIngresos,
+      total_gastos: totalGastos,
+      saldo: totalIngresos - totalGastos,
+      ventas: ventas.rows,
+      compras: compras.rows,
+      gastos: gastos.rows
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/api/estadisticas', auth, async (req, res) => {
   try {
@@ -342,10 +386,9 @@ app.get('/api/dashboard', auth, async (req, res) => {
       pool.query(`SELECT COALESCE(SUM(total),0) as total FROM ingresos_mercaderia WHERE DATE_TRUNC('month', fecha) = DATE_TRUNC('month', NOW())`),
       pool.query(`SELECT * FROM productos WHERE activo=true`),
     ]);
-    const alertas = { critico: [], alto: [], medio: [] };
+    const alertasCritico = [];
     for (const p of todosProds.rows) {
-      const prioridad = getStockPriority(p);
-      if (prioridad !== 'ok') alertas[prioridad].push({ nombre: p.nombre, stock: p.stock_actual, unidad: p.vende_por_kg ? 'kg' : 'ud' });
+      if (getStockPriority(p) === 'critico') alertasCritico.push({ nombre: p.nombre, stock: parseFloat(p.stock_actual), unidad: p.vende_por_kg ? 'kg' : 'ud' });
     }
     const ultimasVentas = await pool.query(`
       SELECT v.id, v.total, v.medio_pago, v.fecha,
@@ -358,10 +401,8 @@ app.get('/api/dashboard', auth, async (req, res) => {
     `);
     res.json({
       ventas_hoy: { total: parseFloat(ventasHoy.rows[0].total), cantidad: parseInt(ventasHoy.rows[0].cantidad) },
-      stock_critico: alertas.critico.length,
-      stock_alto: alertas.alto.length,
-      stock_medio: alertas.medio.length,
-      alertas,
+      stock_critico: alertasCritico.length,
+      alertas_critico: alertasCritico,
       total_mes: parseFloat(totalMes.rows[0].total),
       gastos_mes: parseFloat(ingresosMes.rows[0].total),
       ultimas_ventas: ultimasVentas.rows

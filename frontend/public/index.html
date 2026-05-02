@@ -195,6 +195,7 @@
       <div class="nav-section">Consultas</div>
       <div class="nav-item" onclick="irA('stock')"><span class="ni">📋</span><span>Stock</span></div>
       <div class="nav-item" onclick="irA('historial')"><span class="ni">🕐</span><span>Historial ventas</span></div>
+      <div class="nav-item" onclick="irA('finanzas')"><span class="ni">📊</span><span>Finanzas</span></div>
       <div class="nav-item" onclick="irA('clientes')"><span class="ni">👥</span><span>Clientes</span></div>
       <div class="sidebar-footer">
         <div class="user-badge"><strong id="user-nombre">-</strong>Empleado activo</div>
@@ -233,6 +234,52 @@
             <thead><tr><th>Hora</th><th>Empleado</th><th>Cliente</th><th>Pago</th><th>Total</th></tr></thead>
             <tbody id="d-ultimas"></tbody>
           </table></div>
+        </div>
+      </div>
+
+      <!-- FINANZAS -->
+      <div class="page" id="page-finanzas">
+        <div class="page-header">
+          <div class="page-title">Resumen financiero</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn" onclick="finDia(-1)">‹ Anterior</button>
+            <span id="fin-fecha-label" style="font-size:13px;color:var(--texto2);min-width:120px;text-align:center">Hoy</span>
+            <button class="btn" id="fin-btn-sig" onclick="finDia(1)">Siguiente ›</button>
+          </div>
+        </div>
+        <div class="stat-grid" style="margin-bottom:16px">
+          <div class="stat stat-verde"><div class="stat-label">Ingresos del día</div><div class="stat-valor" id="fin-ingresos">$0</div><div class="stat-sub" id="fin-cant-ventas">0 ventas</div></div>
+          <div class="stat stat-rojo"><div class="stat-label">Gastos y compras</div><div class="stat-valor" id="fin-gastos">$0</div><div class="stat-sub" id="fin-cant-gastos">0 movimientos</div></div>
+          <div class="stat"><div class="stat-label">Saldo del día</div><div class="stat-valor" id="fin-saldo">$0</div><div class="stat-sub" id="fin-saldo-label">—</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="card">
+            <div style="font-size:13px;font-weight:500;margin-bottom:12px;color:#0F6E56">Ventas</div>
+            <table class="tabla" style="width:100%;font-size:13px;border-collapse:collapse">
+              <thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Hora</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Cliente</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Pago</th><th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Total</th></tr></thead>
+              <tbody id="fin-ventas-tbody"><tr><td colspan="4" style="text-align:center;padding:16px;color:var(--texto3);font-size:12px">Sin ventas</td></tr></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div style="font-size:13px;font-weight:500;margin-bottom:12px;color:#A32D2D">Gastos y compras</div>
+            <table class="tabla" style="width:100%;font-size:13px;border-collapse:collapse">
+              <thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Hora</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Descripción</th><th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Monto</th></tr></thead>
+              <tbody id="fin-gastos-tbody"><tr><td colspan="3" style="text-align:center;padding:16px;color:var(--texto3);font-size:12px">Sin gastos</td></tr></tbody>
+            </table>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--borde)">
+              <div style="font-size:12px;font-weight:500;margin-bottom:8px;color:var(--texto2)">Registrar gasto</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <input class="form-input" id="gasto-desc" placeholder="Descripción..." style="flex:2;min-width:120px">
+                <input class="form-input" id="gasto-monto" type="number" placeholder="$0" style="width:90px">
+                <select class="form-input" id="gasto-pago" style="width:130px">
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="mercado_pago">Mercado Pago</option>
+                </select>
+                <button class="btn btn-verde" onclick="registrarGasto()">Registrar</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -543,6 +590,7 @@ function irA(p) {
   if (p === 'stock') cargarStock();
   if (p === 'historial') cargarHistorial();
   if (p === 'clientes') cargarClientes();
+  if (p === 'finanzas') { finOffset = 0; cargarFinanzas(); }
 }
 
 // ── DATOS BASE ─────────────────────────────────────
@@ -601,7 +649,7 @@ async function cargarDashboard() {
   document.getElementById('d-mes').textContent = fmt(d.total_mes);
   document.getElementById('d-gastos').textContent = fmt(d.gastos_mes);
   document.getElementById('d-stock-critico').textContent = d.stock_critico;
-  document.getElementById('d-stock-sub').textContent = d.stock_alto + ' en nivel alto, ' + d.stock_medio + ' en nivel medio';
+  document.getElementById('d-stock-sub').textContent = d.stock_critico > 0 ? 'última bolsa abierta' : 'stock normal';
   // Show alerts card below dashboard
   const alertCard = document.getElementById('d-alertas-card');
   if (alertCard) {
@@ -613,9 +661,9 @@ async function cargarDashboard() {
       if (resto > 0) txt += ' <span style="opacity:.7">y ' + resto + ' más...</span>';
       return txt;
     };
-    if (d.alertas.critico.length) html += '<div class="alerta-stock" style="background:#FCEBEB;border:1px solid #E24B4A;color:#A32D2D;margin-bottom:8px"><strong>🔴 Crítico ('+d.alertas.critico.length+')</strong> — ' + fmtAlerta(d.alertas.critico) + '</div>';
-    if (d.alertas.alto.length) html += '<div class="alerta-stock" style="background:#FAEEDA;border:1px solid #EF9F27;color:#633806;margin-bottom:8px"><strong>🟠 Alto ('+d.alertas.alto.length+')</strong> — ' + fmtAlerta(d.alertas.alto) + '</div>';
-    if (d.alertas.medio.length) html += '<div class="alerta-stock" style="background:#FFF9E6;border:1px solid #FAC775;color:#854F0B;margin-bottom:8px"><strong>🟡 Medio ('+d.alertas.medio.length+')</strong> — ' + fmtAlerta(d.alertas.medio) + '</div>';
+    if (d.alertas_critico && d.alertas_critico.length) {
+      html += '<div class="alerta-stock" style="background:#FCEBEB;border:1px solid #E24B4A;color:#A32D2D"><strong>🔴 Última bolsa abierta ('+d.alertas_critico.length+')</strong> — ' + fmtAlerta(d.alertas_critico) + '</div>';
+    }
     alertCard.innerHTML = html;
   }
   const tb = document.getElementById('d-ultimas');
@@ -1008,6 +1056,84 @@ async function guardarCliente() {
   if (r && r.id) { cerrarModal('modal-cliente'); await cargarClientes(); }
   else { alert('Error al guardar el cliente'); }
 }
+
+// ── FINANZAS ──────────────────────────────────────
+let finOffset = 0;
+const diasSem = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const mesesNom = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function finFecha() {
+  const d = new Date();
+  d.setDate(d.getDate() + finOffset);
+  return d.toISOString().split('T')[0];
+}
+
+function finDia(n) {
+  if (finOffset + n > 0) return;
+  finOffset += n;
+  document.getElementById('fin-btn-sig').disabled = finOffset >= 0;
+  cargarFinanzas();
+}
+
+async function cargarFinanzas() {
+  const fecha = finFecha();
+  const d = new Date(fecha + 'T12:00:00');
+  const label = finOffset === 0 ? 'Hoy' : finOffset === -1 ? 'Ayer' : diasSem[d.getDay()] + ' ' + d.getDate() + ' de ' + mesesNom[d.getMonth()];
+  document.getElementById('fin-fecha-label').textContent = label;
+  const r = await api('/api/financiero?fecha=' + fecha);
+  if (!r) return;
+  document.getElementById('fin-ingresos').textContent = fmt(r.total_ingresos);
+  document.getElementById('fin-cant-ventas').textContent = r.ventas.length + ' venta' + (r.ventas.length !== 1 ? 's' : '');
+  document.getElementById('fin-gastos').textContent = fmt(r.total_gastos);
+  document.getElementById('fin-cant-gastos').textContent = (r.compras.length + r.gastos.length) + ' movimientos';
+  const saldo = r.saldo;
+  const saldoEl = document.getElementById('fin-saldo');
+  saldoEl.textContent = fmt(Math.abs(saldo));
+  saldoEl.style.color = saldo >= 0 ? '#0F6E56' : '#A32D2D';
+  document.getElementById('fin-saldo-label').textContent = saldo >= 0 ? 'positivo' : 'negativo';
+
+  const vtb = document.getElementById('fin-ventas-tbody');
+  if (!r.ventas.length) {
+    vtb.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--texto3);font-size:12px">Sin ventas</td></tr>';
+  } else {
+    vtb.innerHTML = r.ventas.map(v => `<tr>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px;color:var(--texto2)">${new Date(v.fecha).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px">${v.cliente}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">${v.medio_pago}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px;font-weight:500;text-align:right;color:#0F6E56">+${fmt(v.total)}</td>
+    </tr>`).join('');
+  }
+
+  const gtb = document.getElementById('fin-gastos-tbody');
+  const todos = [
+    ...r.compras.map(c => ({ hora: c.fecha, desc: 'Compra — ' + (c.proveedor || 'Proveedor'), monto: c.total || 0 })),
+    ...r.gastos.map(g => ({ hora: g.fecha, desc: g.descripcion, monto: g.monto }))
+  ].sort((a,b) => new Date(a.hora) - new Date(b.hora));
+
+  if (!todos.length) {
+    gtb.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:16px;color:var(--texto3);font-size:12px">Sin gastos</td></tr>';
+  } else {
+    gtb.innerHTML = todos.map(g => `<tr>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px;color:var(--texto2)">${new Date(g.hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px">${g.desc}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px;font-weight:500;text-align:right;color:#A32D2D">-${fmt(g.monto)}</td>
+    </tr>`).join('');
+  }
+}
+
+async function registrarGasto() {
+  const desc = document.getElementById('gasto-desc').value.trim();
+  const monto = parseFloat(document.getElementById('gasto-monto').value);
+  const pago = document.getElementById('gasto-pago').value;
+  if (!desc || !monto) { alert('Completá la descripción y el monto'); return; }
+  const r = await api('/api/gastos', { method: 'POST', body: JSON.stringify({ descripcion: desc, monto, medio_pago: pago }) });
+  if (r && r.id) {
+    document.getElementById('gasto-desc').value = '';
+    document.getElementById('gasto-monto').value = '';
+    cargarFinanzas();
+  }
+}
+
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </body>
