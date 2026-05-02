@@ -196,6 +196,7 @@
       <div class="nav-item" onclick="irA('stock')"><span class="ni">📋</span><span>Stock</span></div>
       <div class="nav-item" onclick="irA('historial')"><span class="ni">🕐</span><span>Historial ventas</span></div>
       <div class="nav-item" onclick="irA('finanzas')"><span class="ni">📊</span><span>Finanzas</span></div>
+      <div class="nav-item" onclick="irA('ranking')"><span class="ni">🏆</span><span>Ranking productos</span></div>
       <div class="nav-item" onclick="irA('clientes')"><span class="ni">👥</span><span>Clientes</span></div>
       <div class="sidebar-footer">
         <div class="user-badge"><strong id="user-nombre">-</strong>Empleado activo</div>
@@ -237,6 +238,29 @@
         </div>
       </div>
 
+      <!-- RANKING -->
+      <div class="page" id="page-ranking">
+        <div class="page-header">
+          <div class="page-title">Ranking de productos</div>
+          <span style="font-size:12px;color:var(--texto2)">Últimos 30 días</span>
+        </div>
+        <div class="card">
+          <div class="tabla-wrap"><table>
+            <thead><tr>
+              <th>#</th>
+              <th>Producto</th>
+              <th>Vendido (30d)</th>
+              <th>Facturado</th>
+              <th>Stock actual</th>
+              <th>Venta/día prom.</th>
+              <th>Necesita este mes</th>
+              <th>A comprar</th>
+            </tr></thead>
+            <tbody id="ranking-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--texto3)">Cargando...</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+
       <!-- FINANZAS -->
       <div class="page" id="page-finanzas">
         <div class="page-header">
@@ -272,9 +296,12 @@
                 <input class="form-input" id="gasto-desc" placeholder="Descripción..." style="flex:2;min-width:120px">
                 <input class="form-input" id="gasto-monto" type="number" placeholder="$0" style="width:90px">
                 <select class="form-input" id="gasto-pago" style="width:130px">
-                  <option value="efectivo">Efectivo</option>
-                  <option value="transferencia">Transferencia</option>
-                  <option value="mercado_pago">Mercado Pago</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Mercado Pago">Mercado Pago</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Cuenta DNI">Cuenta DNI</option>
+                  <option value="PayWay">PayWay</option>
+                  <option value="Banco Pampa">Banco Pampa</option>
                 </select>
                 <button class="btn btn-verde" onclick="registrarGasto()">Registrar</button>
               </div>
@@ -388,10 +415,14 @@
               <div class="form-group">
                 <label class="form-label">Forma de pago</label>
                 <select class="form-input" id="ing-pago">
-                  <option value="efectivo">Efectivo</option>
-                  <option value="transferencia">Transferencia</option>
-                  <option value="mercado_pago">Mercado Pago</option>
-                  <option value="cheque">Cheque</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Mercado Pago">Mercado Pago</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Cuenta DNI">Cuenta DNI</option>
+                  <option value="PayWay">PayWay</option>
+                  <option value="Banco Pampa">Banco Pampa</option>
+                  <option value="Cheque">Cheque</option>
+                  <option value="Adeudado">Adeudado (sin pago)</option>
                 </select>
               </div>
               <div class="form-group">
@@ -467,9 +498,16 @@
         </div>
         <div class="card">
           <div class="tabla-wrap"><table>
-            <thead><tr><th>Fecha y hora</th><th>Empleado</th><th>Cliente</th><th>Pago</th><th>Descuento</th><th>Total</th></tr></thead>
+            <thead><tr><th>Fecha y hora</th><th>Empleado</th><th>Cliente</th><th>Pago</th><th>Descuento</th><th>Total</th><th></th></tr></thead>
             <tbody id="hist-tbody"></tbody>
           </table></div>
+          <div id="hist-detalle" style="display:none;margin-top:16px;background:var(--fondo);border-radius:var(--radio);padding:14px">
+            <div style="font-size:13px;font-weight:500;margin-bottom:10px">Detalle de venta</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Producto</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Cantidad</th><th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--borde);font-size:11px;color:var(--texto2)">Subtotal</th></tr></thead>
+              <tbody id="hist-detalle-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -591,6 +629,7 @@ function irA(p) {
   if (p === 'historial') cargarHistorial();
   if (p === 'clientes') cargarClientes();
   if (p === 'finanzas') { finOffset = 0; cargarFinanzas(); }
+  if (p === 'ranking') cargarRanking();
 }
 
 // ── DATOS BASE ─────────────────────────────────────
@@ -1002,6 +1041,20 @@ function stockFiltrar() {
 }
 
 // ── HISTORIAL ──────────────────────────────────────
+async function verDetalleVenta(id) {
+  const items = await api('/api/ventas/' + id + '/items');
+  const det = document.getElementById('hist-detalle');
+  const tb = document.getElementById('hist-detalle-tbody');
+  if (!items || !items.length) { det.style.display='none'; return; }
+  det.style.display = 'block';
+  tb.innerHTML = items.map(it => `<tr>
+    <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px">${it.producto_nombre}</td>
+    <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px">${parseFloat(it.cantidad).toFixed(it.modo==='kg'?1:0)} ${it.modo==='kg'?'kg':'ud.'}</td>
+    <td style="padding:7px 8px;border-bottom:1px solid var(--borde);font-size:12px;font-weight:500;text-align:right">${fmt(it.subtotal)}</td>
+  </tr>`).join('');
+  det.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
 async function cargarHistorial() {
   const desde = document.getElementById('hist-desde').value;
   const hasta = document.getElementById('hist-hasta').value;
@@ -1055,6 +1108,31 @@ async function guardarCliente() {
   const r = await api('/api/clientes', { method: 'POST', body: JSON.stringify(body) });
   if (r && r.id) { cerrarModal('modal-cliente'); await cargarClientes(); }
   else { alert('Error al guardar el cliente'); }
+}
+
+// ── RANKING ───────────────────────────────────────
+async function cargarRanking() {
+  const r = await api('/api/ranking');
+  const tb = document.getElementById('ranking-tbody');
+  if (!r || !r.length) {
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--texto3)">Sin datos de ventas aún</td></tr>';
+    return;
+  }
+  tb.innerHTML = r.map((p, i) => {
+    const unidad = p.vende_por_kg ? 'kg' : 'ud.';
+    const comprar = p.necesita_comprar;
+    const comprarColor = comprar > 0 ? 'color:#A32D2D;font-weight:500' : 'color:#0F6E56';
+    return `<tr>
+      <td style="font-weight:500;color:var(--texto2);padding:8px 10px">${i+1}</td>
+      <td style="padding:8px 10px;font-weight:500">${p.nombre}</td>
+      <td style="padding:8px 10px">${parseFloat(p.total_vendido).toFixed(1)} ${unidad}</td>
+      <td style="padding:8px 10px">${fmt(p.total_facturado)}</td>
+      <td style="padding:8px 10px">${parseFloat(p.stock_actual).toFixed(1)} ${unidad}</td>
+      <td style="padding:8px 10px;color:var(--texto2)">${p.venta_diaria_promedio.toFixed(1)} ${unidad}/día</td>
+      <td style="padding:8px 10px">${p.necesita_mes.toFixed(1)} ${unidad} <span style="font-size:10px;color:var(--texto3)">(${p.dias_restantes}d restantes)</span></td>
+      <td style="padding:8px 10px;${comprarColor}">${comprar > 0 ? '⚠ '+comprar.toFixed(1)+' '+unidad : '✓ OK'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── FINANZAS ──────────────────────────────────────

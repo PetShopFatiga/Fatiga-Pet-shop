@@ -185,6 +185,60 @@ app.get('/api/ventas/:id/items', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── RANKING Y PROYECCIÓN ──────────────────────────
+app.get('/api/ranking', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT 
+        p.id,
+        p.nombre,
+        p.vende_por_kg,
+        p.precio_por_kg,
+        p.precio_lista,
+        p.stock_actual,
+        COALESCE(SUM(vi.cantidad), 0) as total_vendido,
+        COALESCE(SUM(vi.subtotal), 0) as total_facturado,
+        COUNT(DISTINCT vi.venta_id) as veces_vendido
+      FROM productos p
+      LEFT JOIN venta_items vi ON p.id = vi.producto_id
+        AND vi.venta_id IN (
+          SELECT id FROM ventas WHERE fecha >= NOW() - INTERVAL '30 days'
+        )
+      WHERE p.activo = true
+      GROUP BY p.id, p.nombre, p.vende_por_kg, p.precio_por_kg, p.precio_lista, p.stock_actual
+      HAVING COALESCE(SUM(vi.cantidad), 0) > 0
+      ORDER BY total_vendido DESC
+      LIMIT 20
+    `);
+
+    // Calculate projection: days left in month
+    const hoy = new Date();
+    const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+    const diaActual = hoy.getDate();
+    const diasRestantes = diasEnMes - diaActual;
+
+    const ranking = r.rows.map(p => {
+      const vendidoPorDia = parseFloat(p.total_vendido) / 30;
+      const necesitaMes = vendidoPorDia * diasRestantes;
+      const stockActual = parseFloat(p.stock_actual);
+      const necesitaComprar = Math.max(0, necesitaMes - stockActual);
+      return {
+        ...p,
+        total_vendido: parseFloat(p.total_vendido),
+        total_facturado: parseFloat(p.total_facturado),
+        veces_vendido: parseInt(p.veces_vendido),
+        stock_actual: stockActual,
+        venta_diaria_promedio: parseFloat(vendidoPorDia.toFixed(2)),
+        necesita_mes: parseFloat(necesitaMes.toFixed(2)),
+        necesita_comprar: parseFloat(necesitaComprar.toFixed(2)),
+        dias_restantes: diasRestantes
+      };
+    });
+
+    res.json(ranking);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── INGRESO MERCADERÍA ─────────────────────────────
 app.post('/api/ingresos', auth, async (req, res) => {
   const { proveedor_id, items, total, medio_pago, estado, observaciones } = req.body;
