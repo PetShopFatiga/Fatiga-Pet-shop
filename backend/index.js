@@ -19,35 +19,63 @@ const pool = new Pool({
 const JWT_SECRET = process.env.JWT_SECRET || 'fatiga_petshop_secret_2025';
 
 async function initDB() {
-  const fs = require('fs');
-  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+  // Solo crea las tablas si no existen. NUNCA borra ni modifica datos existentes.
   try {
-    // Only run CREATE TABLE statements, not inserts
-    const soloTablas = schema.split('\n').filter(line => {
-      const l = line.trim().toUpperCase();
-      return !l.startsWith('INSERT') || false;
-    }).join('\n');
-    // Split by semicolon and run only CREATE TABLE statements
-    const statements = schema.split(';').filter(s => {
-      const t = s.trim().toUpperCase();
-      return t.startsWith('CREATE TABLE') || t.startsWith('--') || t === '';
-    });
-    for (const stmt of statements) {
-      if (stmt.trim()) await pool.query(stmt).catch(() => {});
-    }
-    // Seed only if empty
-    const check = await pool.query('SELECT COUNT(*) as c FROM categorias');
-    if (parseInt(check.rows[0].c) === 0) {
-      const inserts = schema.split(';').filter(s => s.trim().toUpperCase().startsWith('INSERT'));
-      for (const stmt of inserts) {
-        if (stmt.trim()) await pool.query(stmt).catch(e => console.log('Seed skip:', e.message));
-      }
-      console.log('Base de datos inicializada con datos iniciales');
-    } else {
-      console.log('Base de datos ya inicializada, omitiendo seed');
-    }
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY, nombre VARCHAR(100) NOT NULL,
+        username VARCHAR(50) UNIQUE NOT NULL, password_hash VARCHAR(255) NOT NULL,
+        rol VARCHAR(20) DEFAULT 'empleado', activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS categorias (
+        id SERIAL PRIMARY KEY, nombre VARCHAR(100) NOT NULL, icono VARCHAR(10)
+      );
+      CREATE TABLE IF NOT EXISTS proveedores (
+        id SERIAL PRIMARY KEY, nombre VARCHAR(150) NOT NULL,
+        contacto VARCHAR(100), telefono VARCHAR(50), activo BOOLEAN DEFAULT true
+      );
+      CREATE TABLE IF NOT EXISTS productos (
+        id SERIAL PRIMARY KEY, codigo VARCHAR(20) UNIQUE, nombre VARCHAR(200) NOT NULL,
+        categoria_id INTEGER REFERENCES categorias(id), precio_lista NUMERIC(12,2) NOT NULL DEFAULT 0,
+        precio_por_kg NUMERIC(12,2), precio_costo NUMERIC(12,2), vende_por_kg BOOLEAN DEFAULT false,
+        stock_actual NUMERIC(10,2) DEFAULT 0, stock_minimo NUMERIC(10,2) DEFAULT 0,
+        unidad VARCHAR(10) DEFAULT 'ud', activo BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS clientes (
+        id SERIAL PRIMARY KEY, nombre VARCHAR(150) NOT NULL, apellido VARCHAR(100),
+        telefono VARCHAR(50), direccion VARCHAR(200), tipo_mascota VARCHAR(50),
+        alimento_preferido VARCHAR(200), notas TEXT, created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS ventas (
+        id SERIAL PRIMARY KEY, usuario_id INTEGER REFERENCES usuarios(id),
+        cliente_id INTEGER REFERENCES clientes(id), fecha TIMESTAMP DEFAULT NOW(),
+        subtotal NUMERIC(12,2) NOT NULL, descuento NUMERIC(12,2) DEFAULT 0,
+        total NUMERIC(12,2) NOT NULL, medio_pago VARCHAR(30) NOT NULL, observaciones TEXT
+      );
+      CREATE TABLE IF NOT EXISTS venta_items (
+        id SERIAL PRIMARY KEY, venta_id INTEGER REFERENCES ventas(id) ON DELETE CASCADE,
+        producto_id INTEGER REFERENCES productos(id), cantidad NUMERIC(10,2) NOT NULL,
+        precio_unitario NUMERIC(12,2) NOT NULL, subtotal NUMERIC(12,2) NOT NULL, modo VARCHAR(10) DEFAULT 'ud'
+      );
+      CREATE TABLE IF NOT EXISTS ingresos_mercaderia (
+        id SERIAL PRIMARY KEY, usuario_id INTEGER REFERENCES usuarios(id),
+        proveedor_id INTEGER REFERENCES proveedores(id), fecha TIMESTAMP DEFAULT NOW(),
+        total NUMERIC(12,2), medio_pago VARCHAR(30), estado VARCHAR(30) DEFAULT 'pagado', observaciones TEXT
+      );
+      CREATE TABLE IF NOT EXISTS ingreso_items (
+        id SERIAL PRIMARY KEY, ingreso_id INTEGER REFERENCES ingresos_mercaderia(id) ON DELETE CASCADE,
+        producto_id INTEGER REFERENCES productos(id), cantidad NUMERIC(10,2) NOT NULL,
+        precio_unitario NUMERIC(12,2), subtotal NUMERIC(12,2)
+      );
+      CREATE TABLE IF NOT EXISTS gastos (
+        id SERIAL PRIMARY KEY, usuario_id INTEGER REFERENCES usuarios(id),
+        fecha TIMESTAMP DEFAULT NOW(), descripcion VARCHAR(200) NOT NULL,
+        monto NUMERIC(12,2) NOT NULL, categoria VARCHAR(100), medio_pago VARCHAR(30)
+      );
+    `);
+    console.log('Tablas verificadas OK - datos existentes intactos');
   } catch (e) {
-    console.error('Error inicializando DB:', e.message);
+    console.error('Error en initDB:', e.message);
   }
 }
 
