@@ -268,6 +268,37 @@ function getStockPriority(p) {
   }
 }
 
+app.get('/api/estadisticas', auth, async (req, res) => {
+  try {
+    const [porDia, porHora] = await Promise.all([
+      pool.query(`
+        SELECT EXTRACT(DOW FROM fecha) as dia, 
+               COUNT(*) as cantidad,
+               COALESCE(SUM(total),0) as total
+        FROM ventas 
+        WHERE fecha >= NOW() - INTERVAL '90 days'
+        GROUP BY dia ORDER BY dia
+      `),
+      pool.query(`
+        SELECT EXTRACT(HOUR FROM fecha) as hora,
+               COUNT(*) as cantidad,
+               COALESCE(SUM(total),0) as total
+        FROM ventas 
+        WHERE fecha >= NOW() - INTERVAL '90 days'
+        GROUP BY hora ORDER BY hora
+      `)
+    ]);
+    const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const diasData = Array(7).fill(0);
+    const diasTotal = Array(7).fill(0);
+    porDia.rows.forEach(r => { diasData[parseInt(r.dia)] = parseInt(r.cantidad); diasTotal[parseInt(r.dia)] = parseFloat(r.total); });
+    const horasData = Array(24).fill(0);
+    porHora.rows.forEach(r => { horasData[parseInt(r.hora)] = parseInt(r.cantidad); });
+    res.json({ dias: { labels: dias, cantidad: diasData, total: diasTotal }, horas: { labels: Array.from({length:24}, (_,i) => i+'hs'), cantidad: horasData } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.get('/api/stock/alertas', auth, async (req, res) => {
   try {
     const r = await pool.query(`SELECT * FROM productos WHERE activo=true ORDER BY nombre`);
