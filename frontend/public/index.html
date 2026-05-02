@@ -198,6 +198,7 @@
       <div class="nav-item" onclick="irA('finanzas')"><span class="ni">📊</span><span>Finanzas</span></div>
       <div class="nav-item" onclick="irA('ranking')"><span class="ni">🏆</span><span>Ranking productos</span></div>
       <div class="nav-item" onclick="irA('clientes')"><span class="ni">👥</span><span>Clientes</span></div>
+      <div class="nav-item" onclick="irA('facturas')"><span class="ni">🧾</span><span>Facturas</span></div>
       <div class="sidebar-footer">
         <div class="user-badge"><strong id="user-nombre">-</strong>Empleado activo</div>
         <button class="btn btn-sm" onclick="logout()">Salir</button>
@@ -236,6 +237,20 @@
             <tbody id="d-ultimas"></tbody>
           </table></div>
         </div>
+      </div>
+
+      <!-- FACTURAS -->
+      <div class="page" id="page-facturas">
+        <div class="page-header">
+          <div class="page-title">Facturas de proveedores</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+          <select class="form-input" id="fact-prov-filter" onchange="cargarFacturas()" style="max-width:280px">
+            <option value="">Todos los proveedores</option>
+          </select>
+          <button class="btn" onclick="cargarFacturas()">Actualizar</button>
+        </div>
+        <div id="facturas-lista"></div>
       </div>
 
       <!-- RANKING -->
@@ -454,6 +469,13 @@
               <span style="font-size:13px;color:var(--texto2)">Total</span>
               <span style="font-size:20px;font-weight:700;color:var(--verde)" id="ing-total">$0</span>
             </div>
+            <div style="margin-bottom:10px">
+              <div style="font-size:12px;font-weight:500;color:var(--texto2);margin-bottom:6px">Foto de la factura (opcional)</div>
+              <input type="file" id="ing-factura" accept="image/*,application/pdf" capture="environment" style="font-size:12px;width:100%">
+              <div id="ing-factura-preview" style="margin-top:8px;display:none">
+                <img id="ing-factura-img" style="max-width:100%;max-height:150px;border-radius:8px;border:1px solid var(--borde)">
+              </div>
+            </div>
             <button class="btn btn-verde" onclick="ingConfirmar()">Confirmar ingreso</button>
             <div class="exito-banner" id="ing-exito">✓ Mercadería ingresada y stock actualizado</div>
           </div>
@@ -498,7 +520,7 @@
         </div>
         <div class="card">
           <div class="tabla-wrap"><table>
-            <thead><tr><th>Fecha y hora</th><th>Empleado</th><th>Cliente</th><th>Pago</th><th>Descuento</th><th>Total</th><th></th></tr></thead>
+            <thead><tr><th>Fecha y hora</th><th>Empleado</th><th>Cliente</th><th>Pago</th><th>Descuento</th><th>Total</th><th>Productos vendidos</th></tr></thead>
             <tbody id="hist-tbody"></tbody>
           </table></div>
           <div id="hist-detalle" style="display:none;margin-top:16px;background:var(--fondo);border-radius:var(--radio);padding:14px">
@@ -630,6 +652,7 @@ function irA(p) {
   if (p === 'clientes') cargarClientes();
   if (p === 'finanzas') { finOffset = 0; cargarFinanzas(); }
   if (p === 'ranking') cargarRanking();
+  if (p === 'facturas') { cargarFacturasProvFiltro(); cargarFacturas(); }
 }
 
 // ── DATOS BASE ─────────────────────────────────────
@@ -700,9 +723,7 @@ async function cargarDashboard() {
       if (resto > 0) txt += ' <span style="opacity:.7">y ' + resto + ' más...</span>';
       return txt;
     };
-    if (d.alertas_critico && d.alertas_critico.length) {
-      html += '<div class="alerta-stock" style="background:#FCEBEB;border:1px solid #E24B4A;color:#A32D2D"><strong>🔴 Última bolsa abierta ('+d.alertas_critico.length+')</strong> — ' + fmtAlerta(d.alertas_critico) + '</div>';
-    }
+    // Alertas desactivadas temporalmente
     alertCard.innerHTML = html;
   }
   const tb = document.getElementById('d-ultimas');
@@ -973,6 +994,34 @@ function ingRenderItems() {
 }
 function ingQuitarItem(i) { ingItems.splice(i, 1); ingRenderItems(); }
 
+document.addEventListener('change', function(e) {
+  if (e.target.id === 'ing-factura') {
+    const file = e.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        document.getElementById('ing-factura-img').src = ev.target.result;
+        document.getElementById('ing-factura-preview').style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+});
+
+async function subirFactura() {
+  const input = document.getElementById('ing-factura');
+  if (!input.files[0]) return null;
+  const formData = new FormData();
+  formData.append('factura', input.files[0]);
+  const r = await fetch('/api/facturas/upload', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + TOKEN },
+    body: formData
+  });
+  const data = await r.json();
+  return data.url || null;
+}
+
 async function ingConfirmar() {
   if (!ingItems.length) { alert('Agregá al menos un producto'); return; }
   const total = ingItems.reduce((s, it) => s + (it.sub || 0), 0);
@@ -984,10 +1033,15 @@ async function ingConfirmar() {
     total,
     items: ingItems.map(it => ({ producto_id: it.producto_id, cantidad: it.cant, precio_unitario: it.costo, subtotal: it.sub }))
   };
+  // Upload factura if exists
+  const facturaUrl = await subirFactura();
+  if (facturaUrl) body.factura_url = facturaUrl;
   const r = await api('/api/ingresos', { method: 'POST', body: JSON.stringify(body) });
   if (r && r.ok) {
     ingItems = []; ingRenderItems();
     document.getElementById('ing-obs').value = '';
+    document.getElementById('ing-factura').value = '';
+    document.getElementById('ing-factura-preview').style.display = 'none';
     const ex = document.getElementById('ing-exito');
     ex.style.display = 'block';
     setTimeout(() => ex.style.display = 'none', 3000);
@@ -1108,6 +1162,43 @@ async function guardarCliente() {
   const r = await api('/api/clientes', { method: 'POST', body: JSON.stringify(body) });
   if (r && r.id) { cerrarModal('modal-cliente'); await cargarClientes(); }
   else { alert('Error al guardar el cliente'); }
+}
+
+// ── FACTURAS ──────────────────────────────────────
+async function cargarFacturasProvFiltro() {
+  const r = await api('/api/proveedores');
+  const sel = document.getElementById('fact-prov-filter');
+  sel.innerHTML = '<option value="">Todos los proveedores</option>';
+  (r || []).forEach(p => sel.innerHTML += '<option value="'+p.id+'">'+p.nombre+'</option>');
+}
+
+async function cargarFacturas() {
+  const provId = document.getElementById('fact-prov-filter').value;
+  const r = await api('/api/facturas' + (provId ? '?proveedor_id=' + provId : ''));
+  const cont = document.getElementById('facturas-lista');
+  if (!r || !r.length) {
+    cont.innerHTML = '<div style="text-align:center;padding:40px;color:var(--texto3);font-size:13px">No hay facturas cargadas aún.<br>Al ingresar mercadería podés adjuntar la foto de la factura.</div>';
+    return;
+  }
+  cont.innerHTML = r.map(f => `
+    <div class="card" style="margin-bottom:12px;display:flex;gap:16px;align-items:flex-start">
+      <div style="flex:1">
+        <div style="font-weight:500;font-size:14px;margin-bottom:4px">${f.proveedor || 'Sin proveedor'}</div>
+        <div style="font-size:12px;color:var(--texto2);margin-bottom:4px">${new Date(f.fecha).toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'})} — ${f.empleado}</div>
+        <div style="font-size:13px;font-weight:500;color:#0F6E56">${fmt(f.total || 0)}</div>
+        ${f.observaciones ? '<div style="font-size:12px;color:var(--texto2);margin-top:4px">'+f.observaciones+'</div>' : ''}
+        <span style="font-size:11px;padding:2px 8px;border-radius:99px;background:#E1F5EE;color:#085041;margin-top:6px;display:inline-block">${f.estado}</span>
+      </div>
+      ${f.factura_url ? `<img src="${f.factura_url}" onclick="verFacturaGrande('${f.factura_url}')" style="width:100px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--borde);cursor:pointer" title="Click para agrandar">` : ''}
+    </div>`).join('');
+}
+
+function verFacturaGrande(url) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:999;display:flex;align-items:center;justify-content:center;cursor:pointer';
+  overlay.innerHTML = '<img src="'+url+'" style="max-width:90vw;max-height:90vh;border-radius:12px">';
+  overlay.onclick = () => overlay.remove();
+  document.body.appendChild(overlay);
 }
 
 // ── RANKING ───────────────────────────────────────

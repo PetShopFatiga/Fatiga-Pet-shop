@@ -1,4 +1,13 @@
 require('dotenv').config();
+const multer = require('multer');
+const fs = require('fs');
+const uploadDir = '/app/uploads';
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.]/g, '_'))
+});
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
@@ -276,8 +285,8 @@ app.post('/api/ingresos', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const ir = await client.query(
-      'INSERT INTO ingresos_mercaderia (usuario_id, proveedor_id, total, medio_pago, estado, observaciones) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [req.user.id, proveedor_id || null, total || 0, medio_pago || 'efectivo', estado || 'pagado', observaciones || null]
+      'INSERT INTO ingresos_mercaderia (usuario_id, proveedor_id, total, medio_pago, estado, observaciones, factura_url) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [req.user.id, proveedor_id || null, total || 0, medio_pago || 'efectivo', estado || 'pagado', observaciones || null, req.body.factura_url || null]
     );
     const ingresoId = ir.rows[0].id;
     for (const item of items) {
@@ -295,6 +304,38 @@ app.post('/api/ingresos', auth, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// Upload factura image
+app.post('/api/facturas/upload', auth, upload.single('factura'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo' });
+  const url = '/api/facturas/file/' + req.file.filename;
+  res.json({ url, filename: req.file.filename });
+});
+
+// Serve uploaded files
+app.get('/api/facturas/file/:filename', (req, res) => {
+  const filepath = uploadDir + '/' + req.params.filename;
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Archivo no encontrado' });
+  res.sendFile(filepath);
+});
+
+// Get facturas by proveedor
+app.get('/api/facturas', auth, async (req, res) => {
+  const { proveedor_id } = req.query;
+  try {
+    const r = await pool.query(`
+      SELECT i.id, i.fecha, i.total, i.medio_pago, i.estado, i.observaciones, i.factura_url,
+        p.nombre as proveedor, u.nombre as empleado
+      FROM ingresos_mercaderia i
+      LEFT JOIN proveedores p ON i.proveedor_id = p.id
+      LEFT JOIN usuarios u ON i.usuario_id = u.id
+      WHERE ($1::integer IS NULL OR i.proveedor_id = $1)
+        AND i.factura_url IS NOT NULL
+      ORDER BY i.fecha DESC
+    `, [proveedor_id || null]);
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/ingresos', auth, async (req, res) => {
