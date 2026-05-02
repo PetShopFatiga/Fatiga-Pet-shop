@@ -22,8 +22,30 @@ async function initDB() {
   const fs = require('fs');
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   try {
-    await pool.query(schema);
-    console.log('Base de datos inicializada');
+    // Only run CREATE TABLE statements, not inserts
+    const soloTablas = schema.split('\n').filter(line => {
+      const l = line.trim().toUpperCase();
+      return !l.startsWith('INSERT') || false;
+    }).join('\n');
+    // Split by semicolon and run only CREATE TABLE statements
+    const statements = schema.split(';').filter(s => {
+      const t = s.trim().toUpperCase();
+      return t.startsWith('CREATE TABLE') || t.startsWith('--') || t === '';
+    });
+    for (const stmt of statements) {
+      if (stmt.trim()) await pool.query(stmt).catch(() => {});
+    }
+    // Seed only if empty
+    const check = await pool.query('SELECT COUNT(*) as c FROM categorias');
+    if (parseInt(check.rows[0].c) === 0) {
+      const inserts = schema.split(';').filter(s => s.trim().toUpperCase().startsWith('INSERT'));
+      for (const stmt of inserts) {
+        if (stmt.trim()) await pool.query(stmt).catch(e => console.log('Seed skip:', e.message));
+      }
+      console.log('Base de datos inicializada con datos iniciales');
+    } else {
+      console.log('Base de datos ya inicializada, omitiendo seed');
+    }
   } catch (e) {
     console.error('Error inicializando DB:', e.message);
   }
