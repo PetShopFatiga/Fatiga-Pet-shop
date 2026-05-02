@@ -300,11 +300,16 @@
             </div>
             <div>
               <div style="font-size:12px;font-weight:500;color:var(--texto2);margin-bottom:6px">Forma de pago</div>
-              <div class="pago-row">
-                <div class="pago-btn active" id="pago-ef" onclick="pvSetPago('ef')">Efectivo</div>
-                <div class="pago-btn" id="pago-mp" onclick="pvSetPago('mp')">Mercado Pago</div>
-                <div class="pago-btn" id="pago-dni" onclick="pvSetPago('dni')">Transferencia</div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px" id="pago-botones">
+                <div class="pago-btn active" data-pago="Efectivo" onclick="pvTogglePago(this)">Efectivo</div>
+                <div class="pago-btn" data-pago="Mercado Pago" onclick="pvTogglePago(this)">Mercado Pago</div>
+                <div class="pago-btn" data-pago="Transferencia" onclick="pvTogglePago(this)">Transferencia</div>
+                <div class="pago-btn" data-pago="Cuenta DNI" onclick="pvTogglePago(this)">Cuenta DNI</div>
+                <div class="pago-btn" data-pago="PayWay" onclick="pvTogglePago(this)">PayWay</div>
+                <div class="pago-btn" data-pago="Banco Pampa" onclick="pvTogglePago(this)">Banco Pampa</div>
               </div>
+              <div id="pago-montos" style="display:none;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+              <div id="pago-error" style="font-size:11px;color:var(--rojo);display:none">El total de los pagos no coincide con el total de la venta</div>
             </div>
             <button class="btn btn-verde" onclick="pvCobrar()">Registrar venta</button>
           </div>
@@ -731,6 +736,7 @@ function pvAgregarKg() {
 function pvRenderTicket() {
   pvDescAplicado = false;
   document.getElementById('pv-total-tachado').style.display = 'none';
+  pvRenderPagoMontos();
   const cont = document.getElementById('pv-ticket');
   if (!pvItems.length) { cont.innerHTML = '<div style="font-size:12px;color:var(--texto3);text-align:center;padding:16px">Seleccioná un producto</div>'; pvCalcTotal(); return; }
   cont.innerHTML = pvItems.map((it, i) => `
@@ -772,9 +778,37 @@ function pvAplicarDesc() {
 }
 function pvIgnorarDesc() { document.getElementById('pv-desc-panel').style.display = 'none'; pvDescAplicado = false; }
 
-function pvSetPago(p) {
-  pvPago = p;
-  ['ef', 'mp', 'dni'].forEach(x => document.getElementById('pago-' + x).className = 'pago-btn' + (x === p ? ' active' : ''));
+let pvPagosSeleccionados = ['Efectivo'];
+
+function pvTogglePago(el) {
+  const pago = el.dataset.pago;
+  const idx = pvPagosSeleccionados.indexOf(pago);
+  if (idx >= 0) {
+    if (pvPagosSeleccionados.length === 1) return; // al menos uno
+    pvPagosSeleccionados.splice(idx, 1);
+    el.classList.remove('active');
+  } else {
+    pvPagosSeleccionados.push(pago);
+    el.classList.add('active');
+  }
+  pvRenderPagoMontos();
+}
+
+function pvRenderPagoMontos() {
+  const cont = document.getElementById('pago-montos');
+  if (pvPagosSeleccionados.length <= 1) {
+    cont.style.display = 'none';
+    cont.innerHTML = '';
+    return;
+  }
+  cont.style.display = 'flex';
+  const total = pvItems.reduce((s,it)=>s+it.subtotal,0);
+  cont.innerHTML = pvPagosSeleccionados.map((p,i) => `
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+      <span style="min-width:90px;color:var(--texto2)">${p}:</span>
+      <input type="number" id="monto-pago-${i}" class="form-input" style="width:120px;padding:5px 8px" 
+        placeholder="$0" min="0" value="${i===0?total:0}">
+    </div>`).join('');
 }
 
 async function pvCobrar() {
@@ -783,9 +817,18 @@ async function pvCobrar() {
   const desc = pvDescAplicado ? Math.round(raw * 0.1) : 0;
   const total = raw - desc;
   const clienteId = document.getElementById('pv-cliente').value || null;
+  // Build payment string
+  let medioPago = pvPagosSeleccionados[0];
+  if (pvPagosSeleccionados.length > 1) {
+    const montos = pvPagosSeleccionados.map((p,i) => {
+      const val = parseFloat(document.getElementById('monto-pago-'+i)?.value) || 0;
+      return p + ': $' + Math.round(val).toLocaleString('es-AR');
+    });
+    medioPago = montos.join(' + ');
+  }
   const body = {
     cliente_id: clienteId, items: pvItems.map(it => ({ producto_id: it.producto_id, cantidad: it.qty, precio_unitario: it.precio, subtotal: it.subtotal, modo: it.modo })),
-    subtotal: raw, descuento: desc, total, medio_pago: pvPago
+    subtotal: raw, descuento: desc, total, medio_pago: medioPago
   };
   const r = await api('/api/ventas', { method: 'POST', body: JSON.stringify(body) });
   if (r && r.ok) {
