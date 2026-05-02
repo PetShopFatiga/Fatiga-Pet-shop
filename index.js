@@ -244,15 +244,56 @@ app.get('/api/proveedores', auth, async (req, res) => {
 });
 
 // ── DASHBOARD ──────────────────────────────────────
+function getBagWeight(nombre) {
+  const match = (nombre || '').match(/(\d+(?:[,\.]\d+)?)\s*KG/i);
+  if (match) return parseFloat(match[1].replace(',', '.'));
+  return null;
+}
+
+function getStockPriority(p) {
+  const stock = parseFloat(p.stock_actual);
+  if (p.vende_por_kg) {
+    const bolsa = getBagWeight(p.nombre);
+    if (!bolsa || bolsa <= 0) return 'ok';
+    if (stock <= 0) return 'critico';
+    if (stock < bolsa) return 'critico';
+    if (stock < bolsa * 2) return 'alto';
+    if (stock < bolsa * 3) return 'medio';
+    return 'ok';
+  } else {
+    if (stock <= 0) return 'critico';
+    if (stock <= 1) return 'alto';
+    if (stock <= 2) return 'medio';
+    return 'ok';
+  }
+}
+
+app.get('/api/stock/alertas', auth, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM productos WHERE activo=true ORDER BY nombre`);
+    const alertas = { critico: [], alto: [], medio: [] };
+    for (const p of r.rows) {
+      const prioridad = getStockPriority(p);
+      if (prioridad !== 'ok') alertas[prioridad].push({ id: p.id, nombre: p.nombre, stock: p.stock_actual, unidad: p.vende_por_kg ? 'kg' : 'ud' });
+    }
+    res.json(alertas);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/dashboard', auth, async (req, res) => {
   try {
     const hoy = new Date().toISOString().split('T')[0];
-    const [ventasHoy, stockBajo, totalMes, ingresosMes] = await Promise.all([
+    const [ventasHoy, totalMes, ingresosMes, todosProds] = await Promise.all([
       pool.query(`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cantidad FROM ventas WHERE fecha::date = $1`, [hoy]),
-      pool.query(`SELECT COUNT(*) as cantidad FROM productos WHERE activo=true AND stock_actual <= stock_minimo`),
       pool.query(`SELECT COALESCE(SUM(total),0) as total FROM ventas WHERE DATE_TRUNC('month', fecha) = DATE_TRUNC('month', NOW())`),
       pool.query(`SELECT COALESCE(SUM(total),0) as total FROM ingresos_mercaderia WHERE DATE_TRUNC('month', fecha) = DATE_TRUNC('month', NOW())`),
+      pool.query(`SELECT * FROM productos WHERE activo=true`),
     ]);
+    const alertas = { critico: [], alto: [], medio: [] };
+    for (const p of todosProds.rows) {
+      const prioridad = getStockPriority(p);
+      if (prioridad !== 'ok') alertas[prioridad].push({ nombre: p.nombre, stock: p.stock_actual, unidad: p.vende_por_kg ? 'kg' : 'ud' });
+    }
     const ultimasVentas = await pool.query(`
       SELECT v.id, v.total, v.medio_pago, v.fecha,
         u.nombre as empleado,
@@ -264,7 +305,10 @@ app.get('/api/dashboard', auth, async (req, res) => {
     `);
     res.json({
       ventas_hoy: { total: parseFloat(ventasHoy.rows[0].total), cantidad: parseInt(ventasHoy.rows[0].cantidad) },
-      stock_bajo: parseInt(stockBajo.rows[0].cantidad),
+      stock_critico: alertas.critico.length,
+      stock_alto: alertas.alto.length,
+      stock_medio: alertas.medio.length,
+      alertas,
       total_mes: parseFloat(totalMes.rows[0].total),
       gastos_mes: parseFloat(ingresosMes.rows[0].total),
       ultimas_ventas: ultimasVentas.rows

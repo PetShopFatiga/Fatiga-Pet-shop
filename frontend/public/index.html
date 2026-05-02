@@ -214,8 +214,9 @@
           <div class="stat stat-verde"><div class="stat-label">Ventas hoy</div><div class="stat-valor" id="d-ventas-hoy">-</div><div class="stat-sub" id="d-cant-hoy">-</div></div>
           <div class="stat stat-verde"><div class="stat-label">Ventas del mes</div><div class="stat-valor" id="d-mes">-</div></div>
           <div class="stat"><div class="stat-label">Compras del mes</div><div class="stat-valor" id="d-gastos">-</div></div>
-          <div class="stat stat-rojo"><div class="stat-label">Stock bajo</div><div class="stat-valor" id="d-stock-bajo">-</div><div class="stat-sub">productos a reponer</div></div>
+          <div class="stat stat-rojo"><div class="stat-label">Stock crítico</div><div class="stat-valor" id="d-stock-critico">-</div><div class="stat-sub" id="d-stock-sub">cargando...</div></div>
         </div>
+        <div id="d-alertas-card" style="margin-bottom:16px"></div>
         <div class="card">
           <div style="font-size:13px;font-weight:500;margin-bottom:12px">Últimas ventas</div>
           <div class="tabla-wrap"><table>
@@ -257,11 +258,18 @@
                 <span class="kg-opt" onclick="pvSetKg(3)">3 kg</span>
                 <span class="kg-opt" onclick="pvSetKg(5)">5 kg</span>
               </div>
-              <div class="kg-input-row">
-                <input type="number" id="pv-kg-val" placeholder="otro..." step="0.1" min="0.1">
+              <div class="kg-input-row" style="margin-bottom:6px">
+                <input type="number" id="pv-kg-val" placeholder="kg..." step="0.1" min="0.1">
                 <span style="font-size:12px;color:var(--texto2)">kg</span>
                 <button class="btn btn-sm" style="background:var(--verde);color:white;border-color:var(--verde)" onclick="pvAgregarKg()">Agregar</button>
               </div>
+              <div style="font-size:11px;color:var(--texto2);margin-bottom:4px">O ingresá un monto en $:</div>
+              <div class="kg-input-row">
+                <input type="number" id="pv-monto-val" placeholder="$..." step="100" min="0">
+                <span style="font-size:12px;color:var(--texto2)">$</span>
+                <button class="btn btn-sm" style="background:#185FA5;color:white;border-color:#185FA5" onclick="pvAgregarPorMonto()">Calcular</button>
+              </div>
+              <div id="pv-monto-info" style="font-size:11px;color:var(--texto2);margin-top:4px"></div>
             </div>
             <div>
               <div style="font-size:12px;font-weight:500;color:var(--texto2);margin-bottom:6px">Ticket</div>
@@ -538,7 +546,17 @@ async function cargarDashboard() {
   document.getElementById('d-cant-hoy').textContent = d.ventas_hoy.cantidad + ' transacciones';
   document.getElementById('d-mes').textContent = fmt(d.total_mes);
   document.getElementById('d-gastos').textContent = fmt(d.gastos_mes);
-  document.getElementById('d-stock-bajo').textContent = d.stock_bajo;
+  document.getElementById('d-stock-critico').textContent = d.stock_critico;
+  document.getElementById('d-stock-sub').textContent = d.stock_alto + ' en nivel alto, ' + d.stock_medio + ' en nivel medio';
+  // Show alerts card below dashboard
+  const alertCard = document.getElementById('d-alertas-card');
+  if (alertCard) {
+    let html = '';
+    if (d.alertas.critico.length) html += '<div class="alerta-stock" style="background:#FCEBEB;border:1px solid #E24B4A;color:#A32D2D;margin-bottom:8px"><strong>🔴 Crítico</strong> — ' + d.alertas.critico.map(p=>p.nombre+' ('+parseFloat(p.stock).toFixed(1)+' '+p.unidad+')').join(' · ') + '</div>';
+    if (d.alertas.alto.length) html += '<div class="alerta-stock" style="background:#FAEEDA;border:1px solid #EF9F27;color:#633806;margin-bottom:8px"><strong>🟠 Alto</strong> — ' + d.alertas.alto.map(p=>p.nombre+' ('+parseFloat(p.stock).toFixed(1)+' '+p.unidad+')').join(' · ') + '</div>';
+    if (d.alertas.medio.length) html += '<div class="alerta-stock" style="background:#FFF9E6;border:1px solid #FAC775;color:#854F0B;margin-bottom:8px"><strong>🟡 Medio</strong> — ' + d.alertas.medio.map(p=>p.nombre+' ('+parseFloat(p.stock).toFixed(1)+' '+p.unidad+')').join(' · ') + '</div>';
+    alertCard.innerHTML = html;
+  }
   const tb = document.getElementById('d-ultimas');
   if (!d.ultimas_ventas.length) { tb.innerHTML = '<tr class="empty-row"><td colspan="5">Sin ventas aún</td></tr>'; return; }
   tb.innerHTML = d.ultimas_ventas.map(v => `<tr>
@@ -621,6 +639,24 @@ function pvAgregarUd() {
 }
 
 function pvSetKg(v) { document.getElementById('pv-kg-val').value = v; }
+
+function pvAgregarPorMonto() {
+  if (!pvSelProd) return;
+  const monto = parseFloat(document.getElementById('pv-monto-val').value);
+  if (!monto || monto <= 0) { alert('Ingresá un monto'); return; }
+  const pxkg = parseFloat(pvSelProd.precio_por_kg) || parseFloat(pvSelProd.precio_lista);
+  if (!pxkg || pxkg <= 0) { alert('Este producto no tiene precio por kg definido'); return; }
+  const kg = parseFloat((monto / pxkg).toFixed(2));
+  const info = document.getElementById('pv-monto-info');
+  info.textContent = '$' + monto.toLocaleString('es-AR') + ' = ' + kg + ' kg de ' + pvSelProd.nombre;
+  const ex = pvItems.find(i => i.id === pvSelProd.id && i.modo === 'kg');
+  if (ex) { ex.qty = parseFloat((ex.qty + kg).toFixed(2)); ex.subtotal = Math.round(ex.precio * ex.qty); }
+  else pvItems.push({ id: pvSelProd.id, producto_id: pvSelProd.id, nombre: pvSelProd.nombre, modo: 'kg', precio: pxkg, qty: kg, subtotal: Math.round(monto), unidad: 'kg' });
+  document.getElementById('pv-monto-val').value = '';
+  document.getElementById('pv-kg-panel').style.display = 'none';
+  pvSelProd = null;
+  pvRenderTicket();
+}
 
 function pvAgregarKg() {
   if (!pvSelProd) return;
